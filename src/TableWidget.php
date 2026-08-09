@@ -4,12 +4,20 @@ declare(strict_types=1);
 
 namespace Bosun18\TuiDataTable;
 
+use Bosun18\TuiDataTable\Event\RowChangeEvent;
+use Bosun18\TuiDataTable\Event\RowSelectEvent;
 use Bosun18\TuiDataTable\Internal\Viewport;
 use Symfony\Component\Tui\Ansi\AnsiUtils;
+use Symfony\Component\Tui\Event\CancelEvent;
+use Symfony\Component\Tui\Input\Key;
+use Symfony\Component\Tui\Input\Keybindings;
 use Symfony\Component\Tui\Render\RenderContext;
 use Symfony\Component\Tui\Style\Style;
 use Symfony\Component\Tui\Style\StyleSheet;
 use Symfony\Component\Tui\Widget\AbstractWidget;
+use Symfony\Component\Tui\Widget\FocusableInterface;
+use Symfony\Component\Tui\Widget\FocusableTrait;
+use Symfony\Component\Tui\Widget\KeybindingsTrait;
 
 /**
  * A data table for symfony/tui: columns describe the shape, rows are plain
@@ -25,8 +33,11 @@ use Symfony\Component\Tui\Widget\AbstractWidget;
  *
  *     $tui->addStyleSheet(TableWidget::defaultStyleSheet());
  */
-final class TableWidget extends AbstractWidget
+final class TableWidget extends AbstractWidget implements FocusableInterface
 {
+    use FocusableTrait;
+    use KeybindingsTrait;
+
     /**
      * Narrowest a column may become before the whole line gets clipped instead.
      */
@@ -50,8 +61,13 @@ final class TableWidget extends AbstractWidget
         private readonly array $columns,
         array $rows = [],
         private readonly int $maxVisible = 10,
+        ?Keybindings $keybindings = null,
     ) {
         $this->rows = $rows;
+
+        if (null !== $keybindings) {
+            $this->setKeybindings($keybindings);
+        }
     }
 
     /**
@@ -116,6 +132,85 @@ final class TableWidget extends AbstractWidget
     }
 
     /**
+     * @param callable(RowSelectEvent): void $callback
+     *
+     * @return $this
+     */
+    public function onRowSelect(callable $callback): static
+    {
+        return $this->on(RowSelectEvent::class, $callback);
+    }
+
+    /**
+     * @param callable(RowChangeEvent): void $callback
+     *
+     * @return $this
+     */
+    public function onRowChange(callable $callback): static
+    {
+        return $this->on(RowChangeEvent::class, $callback);
+    }
+
+    /**
+     * @param callable(CancelEvent): void $callback
+     *
+     * @return $this
+     */
+    public function onCancel(callable $callback): static
+    {
+        return $this->on(CancelEvent::class, $callback);
+    }
+
+    /**
+     * Handles raw terminal bytes while the widget has focus.
+     *
+     * The cursor stops at the first and last row instead of wrapping around:
+     * upstream lists wrap, but in a table that costs you your place.
+     */
+    public function handleInput(string $data): void
+    {
+        if (null !== $this->onInput && ($this->onInput)($data)) {
+            return;
+        }
+
+        $keys = $this->getKeybindings();
+
+        if ($this->rows) {
+            $last = \count($this->rows) - 1;
+
+            $target = match (true) {
+                $keys->matches($data, 'row_up') => $this->selectedIndex - 1,
+                $keys->matches($data, 'row_down') => $this->selectedIndex + 1,
+                $keys->matches($data, 'page_up') => $this->selectedIndex - $this->maxVisible,
+                $keys->matches($data, 'page_down') => $this->selectedIndex + $this->maxVisible,
+                $keys->matches($data, 'row_first') => 0,
+                $keys->matches($data, 'row_last') => $last,
+                default => null,
+            };
+
+            if (null !== $target) {
+                $this->moveTo($target);
+
+                return;
+            }
+
+            if ($keys->matches($data, 'row_confirm')) {
+                $row = $this->getSelectedRow();
+
+                if (null !== $row) {
+                    $this->dispatch(new RowSelectEvent($this, $row, $this->selectedIndex));
+                }
+
+                return;
+            }
+        }
+
+        if ($keys->matches($data, 'cancel')) {
+            $this->dispatch(new CancelEvent($this));
+        }
+    }
+
+    /**
      * @return list<string>
      */
     public function render(RenderContext $context): array
@@ -127,42 +222,80 @@ final class TableWidget extends AbstractWidget
         $visible = \array_slice($this->rows, $start, $length);
 
         $widths = $this->resolveWidths($terminalColumns, $visible);
-        $lines = [$this->applyElement('header', $this->renderCells(
+        $header = $this->renderCells(
             array_map(static fn (Column $column): string => $column->header, $this->columns),
             $widths,
-        ))];
+        );
+        $lines = [$this->applyElement('header', $this->pad($header, $terminalColumns))];
 
         if (!$visible) {
-            $lines[] = $this->applyElement('no-match', '  No rows');
+            $lines[] = $this->applyElement('no-match', $this->pad('  No rows', $terminalColumns));
 
             return $this->clip($lines, $terminalColumns);
         }
 
         foreach ($visible as $offset => $row) {
-            $lines[] = $this->renderRow($row, $start + $offset, $widths);
+            $lines[] = $this->renderRow($row, $start + $offset, $widths, $terminalColumns);
         }
 
         if ($length < $total) {
-            $indicator = \sprintf('  (%d/%d)', $this->selectedIndex + 1, $total);
-            $lines[] = $this->applyElement(
-                'scroll-info',
-                AnsiUtils::truncateToWidth($indicator, max(0, $terminalColumns - 2), ''),
+            $indicator = AnsiUtils::truncateToWidth(
+                \sprintf('  (%d/%d)', $this->selectedIndex + 1, $total),
+                max(0, $terminalColumns - 2),
+                '',
             );
+            $lines[] = $this->applyElement('scroll-info', $this->pad($indicator, $terminalColumns));
         }
 
         return $this->clip($lines, $terminalColumns);
     }
 
     /**
+     * @return array<string, string[]>
+     */
+    protected static function getDefaultKeybindings(): array
+    {
+        return [
+            'row_up' => [Key::UP],
+            'row_down' => [Key::DOWN],
+            'page_up' => [Key::PAGE_UP],
+            'page_down' => [Key::PAGE_DOWN],
+            'row_first' => [Key::HOME],
+            'row_last' => [Key::END],
+            'row_confirm' => [Key::ENTER],
+            'cancel' => [Key::ESCAPE, 'ctrl+c'],
+        ];
+    }
+
+    /**
+     * Moves the cursor and announces it, unless it was already at that row.
+     */
+    private function moveTo(int $index): void
+    {
+        $before = $this->selectedIndex;
+        $this->setSelectedIndex($index);
+
+        if ($before === $this->selectedIndex) {
+            return;
+        }
+
+        $row = $this->getSelectedRow();
+
+        if (null !== $row) {
+            $this->dispatch(new RowChangeEvent($this, $row, $this->selectedIndex));
+        }
+    }
+
+    /**
      * @param array<string, mixed> $row
      * @param list<int>            $widths
      */
-    private function renderRow(array $row, int $index, array $widths): string
+    private function renderRow(array $row, int $index, array $widths, int $terminalColumns): string
     {
-        $line = $this->renderCells(
+        $line = $this->pad($this->renderCells(
             array_map(fn (Column $column): string => $this->cellText($column, $row), $this->columns),
             $widths,
-        );
+        ), $terminalColumns);
 
         if ($index === $this->selectedIndex) {
             return $this->applyElement('selected', $line);
@@ -238,14 +371,19 @@ final class TableWidget extends AbstractWidget
         $assigned = 0;
 
         foreach ($auto as $position => $index) {
+            $isLast = $position === $lastAuto;
+
             if ($wanted <= $remaining) {
-                $widths[$index] = $desired[$index];
+                // Everything fits, so the last auto column also absorbs the
+                // spare room and the table spans the whole line.
+                $widths[$index] = $isLast ? $desired[$index] + ($remaining - $wanted) : $desired[$index];
                 continue;
             }
 
-            // The last auto column takes whatever is left, so rounding never
-            // leaves a stray cell unassigned.
-            $widths[$index] = $position === $lastAuto
+            // Too little room: divide it in proportion to the content, and let
+            // the last auto column take the remainder so rounding never leaves
+            // a stray cell unassigned.
+            $widths[$index] = $isLast
                 ? max(self::MIN_COLUMN_WIDTH, $remaining - $assigned)
                 : max(self::MIN_COLUMN_WIDTH, (int) floor($desired[$index] * $remaining / $wanted));
 
@@ -299,6 +437,19 @@ final class TableWidget extends AbstractWidget
         // Arrays and plain objects have no sensible cell text; showing the type
         // beats a fatal error inside render().
         return get_debug_type($value);
+    }
+
+    /**
+     * Pads a line out to the full terminal width.
+     *
+     * Applied before the element style, so `selected` and `row-alt` colour the
+     * whole line instead of stopping after the text.
+     */
+    private function pad(string $line, int $terminalColumns): string
+    {
+        $padding = $terminalColumns - AnsiUtils::visibleWidth($line);
+
+        return $padding > 0 ? $line.str_repeat(' ', $padding) : $line;
     }
 
     /**

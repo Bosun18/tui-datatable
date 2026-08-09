@@ -20,9 +20,13 @@ use Symfony\Component\Tui\Render\RenderContext;
 #[CoversClass(TableWidget::class)]
 final class TableWidgetRenderTest extends TestCase
 {
-    public function testHeaderAndRowsAtEightyColumns(): void
+    /**
+     * 25 columns is exactly what this data wants (name 10 + gap 2 + qty 3 +
+     * gap 2 + license 8), so nothing is stretched and the layout shows through.
+     */
+    public function testHeaderAndRowsAtTheirNaturalWidth(): void
     {
-        $lines = $this->table()->render(new RenderContext(80, 24));
+        $lines = $this->table()->render(new RenderContext(25, 24));
 
         self::assertSame([
             'Package     Qty  License',
@@ -31,22 +35,54 @@ final class TableWidgetRenderTest extends TestCase
             'gamma-long  700  MIT',
         ], self::visibleText($lines));
 
-        // name 10 + gap 2 + qty 3 + gap 2 + license 8
         foreach ($lines as $line) {
             self::assertSame(25, AnsiUtils::visibleWidth($line));
         }
 
-        self::assertFitsWidth($lines, 80);
+        self::assertFitsWidth($lines, 25);
     }
 
     public function testFixedColumnKeepsItsWidthWhileAutoColumnsFollowContent(): void
     {
-        $lines = $this->table()->render(new RenderContext(80, 24));
+        $lines = $this->table()->render(new RenderContext(25, 24));
         $header = self::visibleText($lines)[0];
 
         // 'License' is pinned to 8 cells, so it starts at 10 + 2 + 3 + 2 = 17.
         self::assertSame('License', substr($header, 17));
         self::assertSame('Package', substr($header, 0, 7));
+    }
+
+    public function testSpareRoomGoesToTheLastAutoColumnAndRowsFillTheLine(): void
+    {
+        $lines = $this->table()->render(new RenderContext(60, 24));
+
+        foreach ($lines as $index => $line) {
+            self::assertSame(60, AnsiUtils::visibleWidth($line), "line {$index} does not fill the terminal");
+        }
+
+        // 'license' keeps its 8 cells at the right edge, so everything before it
+        // — including the spare 35 cells — belongs to the last auto column.
+        $header = self::visibleText($lines)[0];
+        self::assertSame('License', substr($header, 52));
+        self::assertSame('Package', substr($header, 0, 7));
+
+        // 'qty' is right-aligned, so its value ends where 'license' begins.
+        self::assertSame('700', substr(rtrim(substr(self::visibleText($lines)[3], 0, 50)), -3));
+    }
+
+    public function testFixedOnlyColumnsAreNotStretchedButLinesStillFillTheWidth(): void
+    {
+        $widget = new TableWidget(
+            [new Column('name', 'Package', width: 7), new Column('license', 'License', width: 8)],
+            [['name' => 'alpha', 'license' => 'MIT']],
+        );
+
+        $lines = $widget->render(new RenderContext(40, 24));
+
+        // Columns stay 7 + gap 2 + 8 = 17 wide; the rest of the line is padding
+        // so that row styles still cover it.
+        self::assertSame('alpha    MIT', self::visibleText($lines)[1]);
+        self::assertSame(40, AnsiUtils::visibleWidth($lines[1]));
     }
 
     public function testNarrowTerminalShrinksAutoColumnsAndClipsTheLine(): void
@@ -79,7 +115,8 @@ final class TableWidgetRenderTest extends TestCase
             [['name' => 'alpha', 'qty' => 1234567]],
         );
 
-        $lines = $widget->render(new RenderContext(80, 24));
+        // 18 columns is the natural width here (name 7 + gap 2 + qty 9).
+        $lines = $widget->render(new RenderContext(18, 24));
 
         // The formatted value is 9 cells wide, so the column is 9 and the
         // right-aligned header sits at its end.
@@ -88,7 +125,7 @@ final class TableWidgetRenderTest extends TestCase
             'alpha    1,234,567',
         ], self::visibleText($lines));
 
-        self::assertFitsWidth($lines, 80);
+        self::assertFitsWidth($lines, 18);
     }
 
     public function testScrollIndicatorAppearsOnlyWhenRowsAreHidden(): void
@@ -139,8 +176,12 @@ final class TableWidgetRenderTest extends TestCase
         $lines = $widget->render(new RenderContext(30, 24));
 
         self::assertFitsWidth($lines, 30);
+
+        // Both columns are pinned (6 and 4), so the cells occupy 12 cells and
+        // the rest of each line is padding.
+        self::assertSame('Packag  Note', self::visibleText($lines)[0]);
         foreach ($lines as $line) {
-            self::assertSame(12, AnsiUtils::visibleWidth($line), 'name 6 + gap 2 + note 4');
+            self::assertSame(30, AnsiUtils::visibleWidth($line));
         }
     }
 
@@ -157,7 +198,7 @@ final class TableWidgetRenderTest extends TestCase
         self::assertSame(' Package', self::visibleText($lines)[0]);
         // 9 - 2 = 7 spare cells for 'ab': three on the left, four on the right.
         self::assertSame('   ab', self::visibleText($lines)[1]);
-        self::assertSame(9, AnsiUtils::visibleWidth($lines[1]));
+        self::assertSame(20, AnsiUtils::visibleWidth($lines[1]), 'the line is padded to the terminal width');
 
         self::assertFitsWidth($lines, 20);
     }

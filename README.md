@@ -17,7 +17,8 @@ custom cell formatters, stylesheet-based theming. Keyboard-only in v1.
 
 ## Development
 
-See `START.md`, `PLAN.md`, `ARCHITECTURE.md`, `CLAUDE.md`.
+Under active development towards v0.1.0, so the API can still change
+between commits.
 
 ## License
 

@@ -25,4 +25,23 @@ change invalidates the render cache.
 core stylesheet has no rules for third-party widgets, so register it
 yourself to get any colour.
 
-Keyboard input, events, sorting and filtering are not implemented yet.
+Auto columns now stretch to fill the terminal: whatever width is left
+over after the pinned columns goes to the last auto column, and every
+line is padded to the full width so `selected` and `row-alt` colour the
+whole row rather than stopping after the text. Tables built only from
+pinned columns keep their width and just get the padding.
+
+The widget is interactive. It implements `FocusableInterface`, so the
+focus manager routes keys to it: Up and Down move by a row, PageUp and
+PageDown by a window, Home and End jump to the ends, Enter confirms,
+Escape and ctrl+c cancel. The cursor stops at the first and last row
+instead of wrapping. Pass your own `Keybindings` to the constructor to
+rebind any of it.
+
+Moving the cursor fires `RowChangeEvent`, Enter fires `RowSelectEvent`
+(both carry the row array and its index), and cancelling fires the core
+`CancelEvent`; subscribe with `onRowChange()`, `onRowSelect()` and
+`onCancel()`. Without rows, navigation and Enter do nothing while cancel
+still works.
+
+Sorting, filtering and the column cursor are still missing.
