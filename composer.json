@@ -1,0 +1,29 @@
+{
+    "name": "bosun18/tui-datatable",
+    "description": "Sortable, filterable data table widget for symfony/tui",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["tui", "terminal", "table", "datatable", "symfony", "cli"],
+    "require": {
+        "php": ">=8.4.1",
+        "symfony/tui": "^8.1"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.95",
+        "phpstan/phpstan": "^2.2",
+        "phpunit/phpunit": "^13.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Bosun18\\TuiDataTable\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Bosun18\\TuiDataTable\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
