@@ -9,6 +9,7 @@ use Bosun18\TuiDataTable\Column;
 use Bosun18\TuiDataTable\SortDirection;
 use Bosun18\TuiDataTable\TableWidget;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Tui\Ansi\AnsiUtils;
 use Symfony\Component\Tui\Render\RenderContext;
@@ -277,11 +278,97 @@ final class TableWidgetRenderTest extends TestCase
         self::assertFitsWidth($lines, 14);
     }
 
+    /**
+     * @return iterable<string, array{int, int}>
+     */
+    public static function terminalHeights(): iterable
+    {
+        // available rows, expected line count
+        yield 'plenty of room' => [24, 17];   // header + 15 rows + indicator
+        yield 'ten rows' => [10, 10];
+        yield 'five rows' => [5, 5];
+        yield 'two rows' => [2, 2];
+        yield 'one row leaves the header only' => [1, 1];
+        yield 'no room at all' => [0, 0];
+    }
+
+    #[DataProvider('terminalHeights')]
+    public function testRenderNeverReturnsMoreLinesThanTheContextAllows(int $available, int $expected): void
+    {
+        $widget = new TableWidget([new Column('name', 'Package')], self::manyRows(), maxVisible: 15);
+
+        $lines = $widget->render(new RenderContext(40, $available));
+
+        self::assertCount($expected, $lines);
+    }
+
+    public function testTheHeaderSurvivesAShortTerminal(): void
+    {
+        $widget = new TableWidget([new Column('name', 'Package')], self::manyRows(), maxVisible: 15);
+
+        foreach ([1, 2, 5, 10] as $available) {
+            $lines = self::visibleText($widget->render(new RenderContext(40, $available)));
+
+            self::assertSame('Package', $lines[0], "header lost at {$available} rows");
+        }
+    }
+
+    public function testTheScrollIndicatorIsDroppedWhenThereIsNoRoomForIt(): void
+    {
+        $widget = new TableWidget([new Column('name', 'Package')], self::manyRows(), maxVisible: 15);
+
+        // 10 rows: header, 8 data rows, indicator.
+        $roomy = self::visibleText($widget->render(new RenderContext(40, 10)));
+        self::assertSame('(1/30)', trim($roomy[9]));
+        self::assertSame('row-8', $roomy[8]);
+
+        // 2 rows: header and a single data row, no room to spare.
+        $tight = self::visibleText($widget->render(new RenderContext(40, 2)));
+        self::assertSame('row-1', $tight[1]);
+    }
+
+    public function testTheCursorStaysVisibleInAShortTerminal(): void
+    {
+        $widget = new TableWidget([new Column('name', 'Package')], self::manyRows(), maxVisible: 15);
+        $widget->setSelectedIndex(29);
+
+        $lines = self::visibleText($widget->render(new RenderContext(40, 5)));
+
+        // header + 3 rows + indicator, and the last row has to be among them
+        self::assertCount(5, $lines);
+        self::assertSame('row-30', $lines[3]);
+        self::assertSame('(30/30)', trim($lines[4]));
+    }
+
+    public function testEmptyStateAlsoRespectsTheHeight(): void
+    {
+        $widget = new TableWidget([new Column('name', 'Package')], []);
+
+        self::assertCount(2, $widget->render(new RenderContext(40, 24)));
+        self::assertCount(2, $widget->render(new RenderContext(40, 2)));
+        self::assertCount(1, $widget->render(new RenderContext(40, 1)), 'only the header fits');
+        self::assertCount(0, $widget->render(new RenderContext(40, 0)));
+    }
+
     public function testEveryLineStaysWithinASingleColumnTerminal(): void
     {
         $lines = $this->table()->render(new RenderContext(1, 24));
 
         self::assertFitsWidth($lines, 1);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function manyRows(): array
+    {
+        $rows = [];
+
+        for ($i = 1; $i <= 30; ++$i) {
+            $rows[] = ['name' => "row-{$i}"];
+        }
+
+        return $rows;
     }
 
     private function table(): TableWidget

@@ -6,6 +6,21 @@ Notable changes land here, newest first. Versions follow
 
 ## [Unreleased]
 
+### Fixed
+
+`render()` never returns more lines than the context granted. The widget
+did not read `RenderContext::getRows()` at all, so it always produced
+`maxVisible` rows plus a header and an indicator: at `stty rows 10` a
+table built for 15 rows returned 17 lines and pushed its own header off
+the top of the screen. The core does not trim overflow, it only pads, so
+this was on the widget. The header keeps the first line, data fills what
+is left, and the scroll indicator is dropped when there is no room for
+it; at one row only the header survives, at zero the output is empty.
+
+Note that a table sharing a screen with other widgets can still overflow,
+because a non-expanding child is measured with the full height. Vertical
+expansion is the fix for that and is not in this release.
+
 ## [0.1.1] - 2026-08-09
 
 Documentation only, no code changed.

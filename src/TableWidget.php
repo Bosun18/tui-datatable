@@ -388,18 +388,38 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
     public function render(RenderContext $context): array
     {
         $terminalColumns = $context->getColumns();
+        $terminalRows = max(0, $context->getRows());
+
+        if (0 === $terminalRows) {
+            return [];
+        }
+
         $rows = $this->visibleRows();
         $total = \count($rows);
-        $start = Viewport::start($this->selectedIndex, $total, $this->maxVisible);
-        $length = Viewport::length($total, $this->maxVisible);
+
+        // The header owns the first line. What is left goes to the data and,
+        // when rows are hidden, to the scroll indicator: the render contract
+        // caps the output at the rows the context granted.
+        $budget = $terminalRows - 1;
+        $length = min(Viewport::length($total, $this->maxVisible), $budget);
+        $withIndicator = $length < $total && $budget >= 2;
+
+        if ($withIndicator) {
+            --$budget;
+            $length = min($length, $budget);
+        }
+
+        $start = Viewport::start($this->selectedIndex, $total, max(1, $length));
         $visible = \array_slice($rows, $start, $length);
 
         $widths = $this->resolveWidths($terminalColumns, $visible);
         $lines = [$this->pad($this->renderHeader($widths), $terminalColumns)];
 
-        if (!$visible) {
-            $empty = null === $this->filter ? '  No rows' : '  No matches';
-            $lines[] = $this->applyElement('no-match', $this->pad($empty, $terminalColumns));
+        if (0 === $total) {
+            if ($terminalRows >= 2) {
+                $empty = null === $this->filter ? '  No rows' : '  No matches';
+                $lines[] = $this->applyElement('no-match', $this->pad($empty, $terminalColumns));
+            }
 
             return $this->clip($lines, $terminalColumns);
         }
@@ -408,7 +428,7 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
             $lines[] = $this->renderRow($row, $start + $offset, $widths, $terminalColumns);
         }
 
-        if ($length < $total) {
+        if ($withIndicator) {
             $indicator = AnsiUtils::truncateToWidth(
                 \sprintf('  (%d/%d)', $this->selectedIndex + 1, $total),
                 max(0, $terminalColumns - 2),
