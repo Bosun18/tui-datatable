@@ -68,3 +68,11 @@ at all.
 `FilterChangeEvent` (match count) fire only when the state really
 changed; subscribe with `onSortChange()` and `onFilterChange()`. The
 default stylesheet gained `header-cursor` and `header-sorted`.
+
+`examples/demo.php` is a runnable table of 15 packages with a status
+line, `q` wired into the cancel action and `f` toggling a canned
+filter, and `demo.tape` records it with vhs into `.github/demo.gif`
+for the top of the README. The
+README covers installation, a quick start, the keybindings, sorting and
+filtering, styling and the events; `examples/` and `demo.tape` are
+excluded from the Composer archive.
