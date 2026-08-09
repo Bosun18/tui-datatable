@@ -6,7 +6,20 @@ Notable changes land here, newest first. Versions follow
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-09
+
 ### Added
+
+`setEmptyText()` and `setNoMatchText()` replace the two hardcoded English
+lines, so a table in a Russian interface no longer says `No rows`. The
+defaults are unchanged, and the filtered case still wins when a filter is
+active, even if the underlying data is empty as well.
+
+`getColumns()` returns the columns in order and `getVisibleRowCount()` how
+many rows survive the filter. Both existed only inside the widget before:
+building a label like `sorted by Placed` meant keeping your own map of
+keys to headers, and the row count had to be caught from
+`FilterChangeEvent` and kept in a variable by the caller.
 
 `expandVertically(bool)` makes the table fill the height the layout hands
 it, which is the other half of the height fix below: capping the output
@@ -138,6 +151,7 @@ README covers installation, a quick start, the keybindings, sorting and
 filtering, styling and the events; `examples/` and `demo.tape` are
 excluded from the Composer archive.
 
-[Unreleased]: https://github.com/Bosun18/tui-datatable/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Bosun18/tui-datatable/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Bosun18/tui-datatable/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Bosun18/tui-datatable/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Bosun18/tui-datatable/releases/tag/v0.1.0

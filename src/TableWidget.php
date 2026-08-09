@@ -80,6 +80,10 @@ final class TableWidget extends AbstractWidget implements FocusableInterface, Ve
     /** @var (\Closure(array<string, mixed>): bool)|string|null */
     private \Closure|string|null $filter = null;
 
+    private string $emptyText = 'No rows';
+
+    private string $noMatchText = 'No matches';
+
     /**
      * @param list<Column>               $columns
      * @param list<array<string, mixed>> $rows
@@ -158,6 +162,58 @@ final class TableWidget extends AbstractWidget implements FocusableInterface, Ve
 
         if ($this->selectedIndex !== $index) {
             $this->selectedIndex = $index;
+            $this->invalidate();
+        }
+
+        return $this;
+    }
+
+    /**
+     * The columns the table was built with, in order.
+     *
+     * Handy for labels like "sorted by Placed": pair it with getSort() instead
+     * of keeping your own map of keys to headers.
+     *
+     * @return list<Column>
+     */
+    public function getColumns(): array
+    {
+        return $this->columns;
+    }
+
+    /**
+     * How many rows survive the current filter, which is what the table would
+     * show given unlimited height.
+     */
+    public function getVisibleRowCount(): int
+    {
+        return \count($this->visibleRows());
+    }
+
+    /**
+     * Line shown when there is no data at all.
+     *
+     * @return $this
+     */
+    public function setEmptyText(string $text): static
+    {
+        if ($this->emptyText !== $text) {
+            $this->emptyText = $text;
+            $this->invalidate();
+        }
+
+        return $this;
+    }
+
+    /**
+     * Line shown when a filter is active and matched nothing.
+     *
+     * @return $this
+     */
+    public function setNoMatchText(string $text): static
+    {
+        if ($this->noMatchText !== $text) {
+            $this->noMatchText = $text;
             $this->invalidate();
         }
 
@@ -477,7 +533,7 @@ final class TableWidget extends AbstractWidget implements FocusableInterface, Ve
 
         if (0 === $total) {
             if ($terminalRows >= 2) {
-                $empty = null === $this->filter ? '  No rows' : '  No matches';
+                $empty = '  '.(null === $this->filter ? $this->emptyText : $this->noMatchText);
                 $lines[] = $this->applyElement('no-match', $this->pad($empty, $terminalColumns));
             }
 

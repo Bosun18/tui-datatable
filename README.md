@@ -199,10 +199,24 @@ $table->onInput(function (string $data) use ($tui, $input): bool {
 });
 ```
 
-Empty states are written in English and cannot be changed yet: a table with no
-data says `No rows`, and one whose filter matched nothing says `No matches`. The
-widget is `final`, so there is no subclass to override them from either. If your
-interface is not in English, that shows.
+An empty table says `No rows`, and one whose filter matched nothing says
+`No matches`. Both lines are yours to change, which matters as soon as the rest
+of your interface is not in English:
+
+```php
+$table
+    ->setEmptyText('Пока нет данных')
+    ->setNoMatchText('Ничего не найдено');
+```
+
+## Reading the state back
+
+`getSort()` reports the current sort, `getSelectedRow()` and
+`getSelectedIndex()` the cursor, `getColumns()` the columns in order and
+`getVisibleRowCount()` how many rows survive the filter. The last two save you
+from keeping a copy of what the table already knows: pairing `getSort()` with
+`getColumns()` is enough for a label like `sorted by Placed`, and the row count
+no longer has to be caught from `FilterChangeEvent` and stashed in a variable.
 
 ## Styling
 

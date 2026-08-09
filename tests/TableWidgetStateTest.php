@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Bosun18\TuiDataTable\Tests;
 
 use Bosun18\TuiDataTable\Column;
+use Bosun18\TuiDataTable\Event\FilterChangeEvent;
 use Bosun18\TuiDataTable\TableWidget;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -115,6 +116,67 @@ final class TableWidgetStateTest extends TestCase
         $this->expectExceptionMessage('maxVisible must be at least 1, got 0.');
 
         $widget->setMaxVisible(0);
+    }
+
+    public function testGetColumnsHandsBackTheColumnsInOrder(): void
+    {
+        $columns = [
+            new Column('name', 'Package'),
+            new Column('qty', 'Qty', sortable: false),
+        ];
+        $widget = new TableWidget($columns, []);
+
+        self::assertSame($columns, $widget->getColumns());
+
+        // Enough to build the 'sorted by <header>' label a caller needs.
+        $headers = [];
+        foreach ($widget->getColumns() as $column) {
+            $headers[$column->key] = $column->header;
+        }
+        self::assertSame(['name' => 'Package', 'qty' => 'Qty'], $headers);
+    }
+
+    public function testVisibleRowCountFollowsFilterAndData(): void
+    {
+        $widget = new TableWidget(
+            [new Column('name', 'Package'), new Column('license', 'License')],
+            [
+                ['name' => 'alpha', 'license' => 'MIT'],
+                ['name' => 'beta', 'license' => 'BSD'],
+                ['name' => 'gamma', 'license' => 'MIT'],
+            ],
+        );
+
+        self::assertSame(3, $widget->getVisibleRowCount());
+
+        $widget->setFilter('MIT');
+        self::assertSame(2, $widget->getVisibleRowCount());
+
+        $widget->setFilter('nope');
+        self::assertSame(0, $widget->getVisibleRowCount());
+
+        $widget->clearFilter();
+        self::assertSame(3, $widget->getVisibleRowCount());
+
+        $widget->setRows([]);
+        self::assertSame(0, $widget->getVisibleRowCount());
+    }
+
+    public function testVisibleRowCountMatchesTheFilterChangeEvent(): void
+    {
+        $widget = new TableWidget(
+            [new Column('name', 'Package')],
+            [['name' => 'alpha'], ['name' => 'beta']],
+        );
+
+        $reported = null;
+        $widget->onFilterChange(static function (FilterChangeEvent $event) use (&$reported): void {
+            $reported = $event->matchCount;
+        });
+
+        $widget->setFilter('a');
+
+        self::assertSame($reported, $widget->getVisibleRowCount());
     }
 
     public function testDefaultStyleSheetCoversEveryElementTheWidgetStyles(): void
