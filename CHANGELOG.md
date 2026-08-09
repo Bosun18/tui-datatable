@@ -6,6 +6,33 @@ Notable changes land here, newest first. Versions follow
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-09
+
+Documentation only, no code changed.
+
+Using the package in a Laravel command turned up things the README either
+got wrong or never said. The links to `examples/` were relative, and
+`examples/` is excluded from the Composer archive, so they pointed at
+files that do not exist under `vendor/`; they are absolute GitHub links
+now. `onInput()` was not mentioned at all, even though it is the only way
+to bind a key of your own or hand typing over to an `InputWidget`, so it
+now has a paragraph and a worked example. The `Keybindings` snippet
+showed that an entry replaces an action but never said so, which is easy
+to miss until Escape stops working.
+
+Three more gaps, all found the same way. Sorting warned about `'10kb'`
+and dates but not about anything outside ASCII: `<=>` compares bytes, so
+Latin sorts before Cyrillic and `ё` (U+0451) lands past `я` — there is a
+`Collator` example for that now. The empty-state texts are English and
+cannot be changed, which the README now admits instead of leaving you to
+find out. And what a non-string cell turns into was only in the PHPDoc:
+`Stringable` casts, arrays and other objects show their type name, `null`
+and a missing key render empty.
+
+`examples/artisan-command.php` sketches the framework side: where to
+build the widget, that `Tui::run()` blocks until `stop()`, and how
+control comes back to the command afterwards.
+
 ## [0.1.0] - 2026-08-09
 
 `TableWidget` renders a table: a header row, the rows inside a scroll
@@ -79,5 +106,6 @@ README covers installation, a quick start, the keybindings, sorting and
 filtering, styling and the events; `examples/` and `demo.tape` are
 excluded from the Composer archive.
 
-[Unreleased]: https://github.com/Bosun18/tui-datatable/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Bosun18/tui-datatable/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Bosun18/tui-datatable/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Bosun18/tui-datatable/releases/tag/v0.1.0

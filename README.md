@@ -24,7 +24,14 @@ composer require bosun18/tui-datatable
 ## Quick start
 
 Rows are associative arrays and a `Column` says which key it reads, so nothing
-has to be mapped into objects first.
+has to be mapped into objects first. `Column` takes seven parameters and expects
+named arguments: positionally, `width`, `align` and `sortable` sit between the
+header and the formatter, which reads badly.
+
+A cell value that is not a string is turned into one: scalars and `Stringable`
+objects by casting, arrays and other objects into their type name (`array`,
+`DateTimeImmutable`), `null` and a missing key into an empty cell. When you want
+something else on screen, give the column a formatter.
 
 ```php
 use Bosun18\TuiDataTable\Align;
@@ -66,8 +73,13 @@ $tui->setFocus($table);
 $tui->run();
 ```
 
-There is a runnable version in [`examples/demo.php`](examples/demo.php): 15
-packages, a status line and a filter on `f`.
+There is a runnable version in
+[`examples/demo.php`](https://github.com/Bosun18/tui-datatable/blob/main/examples/demo.php):
+15 packages, a status line and a filter on `f`. Wiring the widget into a
+framework console command looks like
+[`examples/artisan-command.php`](https://github.com/Bosun18/tui-datatable/blob/main/examples/artisan-command.php).
+Both links point at GitHub because `examples/` is kept out of the Composer
+archive, so you will not find those files under `vendor/`.
 
 ## Keybindings
 
@@ -94,6 +106,11 @@ new TableWidget($columns, $rows, 10, new Keybindings([
 ]));
 ```
 
+A `Keybindings` entry replaces the whole action, it does not extend it. That is
+why Escape and ctrl+c are spelled out again above: leave them out and the table
+loses them. It also means keys added to an action in a later version will not
+reach a widget that overrides that action.
+
 ## Sorting and filtering
 
 Sorting is stable and compares the raw cell values with `<=>`, so equal rows
@@ -101,6 +118,19 @@ keep the order you gave them in. When the natural comparison is wrong, say
 `'10kb'` before `'9kb'` or dates kept as strings, give the column its own
 comparator. A column declared `sortable: false` ignores the `s` key, and
 `sortBy()` on it throws `InvalidArgumentException` rather than sorting anyway.
+
+The same applies to anything outside ASCII, because `<=>` compares strings byte
+by byte. Sorting `ананас, апельсин, banana, яблоко, ёлка` ascending gives
+`banana, ананас, апельсин, яблоко, ёлка`: Latin lands before Cyrillic, and `ё`
+(U+0451) sits past `я` (U+044F) instead of after `е`. For text in a human
+language, sort through a collator:
+
+```php
+$collator = new \Collator('ru_RU');
+
+new Column('guest', 'Guest', comparator: static fn (mixed $a, mixed $b): int
+    => $collator->compare((string) $a, (string) $b) ?: 0);
+```
 
 ```php
 $table->sortBy('downloads', SortDirection::Desc);
@@ -123,6 +153,37 @@ mutated. Indexes in events and in `getSelectedIndex()` count the rows currently
 on screen, so a filtered table numbers its matches from zero. A new filter or
 sort moves the cursor back to the first row: keeping the old position would
 point at an unrelated row.
+
+There is no filter input widget in this package, so the text has to come from
+somewhere in your app. `onInput()`, which the table gets from the core
+`KeybindingsTrait`, runs before `handleInput()` and swallows the bytes when the
+callback returns true, which is enough to bind a key of your own:
+
+```php
+$input = new InputWidget()->setPrompt('  Filter: ');
+
+$input
+    // Filtering as you type reads better than waiting for Enter.
+    ->onChange(function (ChangeEvent $event) use ($table): void {
+        $event->isBlank() ? $table->clearFilter() : $table->setFilter($event->getValue());
+    })
+    ->onSubmit(fn () => $tui->setFocus($table));
+
+$table->onInput(function (string $data) use ($tui, $input): bool {
+    if ('/' !== $data) {
+        return false;   // let the table handle the key
+    }
+
+    $tui->setFocus($input);
+
+    return true;        // and keep '/' out of the table
+});
+```
+
+Empty states are written in English and cannot be changed yet: a table with no
+data says `No rows`, and one whose filter matched nothing says `No matches`. The
+widget is `final`, so there is no subclass to override them from either. If your
+interface is not in English, that shows.
 
 ## Styling
 
@@ -161,6 +222,10 @@ core `Symfony\Component\Tui\Event\CancelEvent`. Subscribe through
 `onRowChange()`, `onRowSelect()`, `onSortChange()`, `onFilterChange()` and
 `onCancel()`, or with `on(EventClass::class, $callback)` directly. Events fire
 only on a real change, so holding Down at the last row stays quiet.
+
+Order matters when you set a sort up front: `sortBy()` dispatches immediately,
+so a listener registered after it never sees that first event and your status
+line starts out empty. Subscribe first, then sort.
 
 Cell text goes to the terminal as it is and is not sanitized, same as
 `SelectListWidget`. Untrusted content should go through
