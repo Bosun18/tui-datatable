@@ -64,6 +64,10 @@ $hint = new TextWidget(
 $status->addStyleClass('demo-status');
 $hint->addStyleClass('demo-hint');
 
+// Take whatever height is left after the status and hint lines, instead of the
+// 10 rows above: on a short terminal a fixed window pushes the header off.
+$table->expandVertically(true);
+
 $tui = new Tui();
 $tui->addStyleSheet(TableWidget::defaultStyleSheet());
 $tui->addStyleSheet(new StyleSheet([

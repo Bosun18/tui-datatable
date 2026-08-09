@@ -6,6 +6,23 @@ Notable changes land here, newest first. Versions follow
 
 ## [Unreleased]
 
+### Added
+
+`expandVertically(bool)` makes the table fill the height the layout hands
+it, which is the other half of the height fix below: capping the output
+stops the widget from overflowing on its own, but a table sharing a
+screen with a status line still needed a way to learn how much room is
+actually left. While expansion is on, `maxVisible` is ignored completely
+rather than acting as a ceiling, because a table that quietly shows ten
+rows after you asked it to fill the screen is a worse surprise than one
+that ignores a number you set earlier. It is off by default, so 0.1.x
+behaviour is unchanged, and `isVerticallyExpanded()` reports the state.
+
+`setMaxVisible(int)` changes the fixed window after construction and
+throws `InvalidArgumentException` below one row. Paging now moves by the
+window that was last drawn instead of by `maxVisible`, which is what you
+want once the height comes from the layout.
+
 ### Fixed
 
 `render()` never returns more lines than the context granted. The widget

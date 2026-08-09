@@ -75,6 +75,48 @@ final class TableWidgetStateTest extends TestCase
         self::assertSame(['name' => 'delta'], $widget->getSelectedRow());
     }
 
+    public function testVerticalExpansionIsOffByDefaultAndTogglesCleanly(): void
+    {
+        $widget = $this->table();
+
+        self::assertFalse($widget->isVerticallyExpanded());
+
+        $before = $widget->getRenderRevision();
+        $widget->expandVertically(true);
+        self::assertTrue($widget->isVerticallyExpanded());
+        self::assertGreaterThan($before, $widget->getRenderRevision());
+
+        $revision = $widget->getRenderRevision();
+        $widget->expandVertically(true);
+        self::assertSame($revision, $widget->getRenderRevision(), 'setting the same value is a no-op');
+
+        $widget->expandVertically(false);
+        self::assertFalse($widget->isVerticallyExpanded());
+    }
+
+    public function testSetMaxVisibleInvalidatesOnlyOnChange(): void
+    {
+        $widget = $this->table();
+
+        $before = $widget->getRenderRevision();
+        $widget->setMaxVisible(4);
+        self::assertGreaterThan($before, $widget->getRenderRevision());
+
+        $revision = $widget->getRenderRevision();
+        $widget->setMaxVisible(4);
+        self::assertSame($revision, $widget->getRenderRevision());
+    }
+
+    public function testSetMaxVisibleRejectsLessThanOneRow(): void
+    {
+        $widget = $this->table();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('maxVisible must be at least 1, got 0.');
+
+        $widget->setMaxVisible(0);
+    }
+
     public function testDefaultStyleSheetCoversEveryElementTheWidgetStyles(): void
     {
         $rules = TableWidget::defaultStyleSheet()->getRules();

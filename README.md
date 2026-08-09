@@ -111,6 +111,25 @@ why Escape and ctrl+c are spelled out again above: leave them out and the table
 loses them. It also means keys added to an action in a later version will not
 reach a widget that overrides that action.
 
+## Height
+
+By default the table draws `maxVisible` data rows, ten unless you say
+otherwise, and never more lines than the terminal granted: the header keeps
+the first line, the scroll indicator is dropped when there is no room for it,
+and at one row only the header survives.
+
+When the table shares a screen with other widgets, let the layout decide
+instead:
+
+```php
+$table->expandVertically(true);
+```
+
+The window then comes from the height the layout hands over, so the table
+grows and shrinks with the terminal. **While expansion is on, `maxVisible` is
+ignored entirely** — it is not a ceiling. `setMaxVisible()` still works and
+takes effect the moment you turn expansion back off.
+
 ## Sorting and filtering
 
 Sorting is stable and compares the raw cell values with `<=>`, so equal rows

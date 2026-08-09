@@ -20,6 +20,7 @@ use Symfony\Component\Tui\Widget\AbstractWidget;
 use Symfony\Component\Tui\Widget\FocusableInterface;
 use Symfony\Component\Tui\Widget\FocusableTrait;
 use Symfony\Component\Tui\Widget\KeybindingsTrait;
+use Symfony\Component\Tui\Widget\VerticallyExpandableInterface;
 
 /**
  * A data table for symfony/tui: columns describe the shape, rows are plain
@@ -35,7 +36,7 @@ use Symfony\Component\Tui\Widget\KeybindingsTrait;
  *
  *     $tui->addStyleSheet(TableWidget::defaultStyleSheet());
  */
-final class TableWidget extends AbstractWidget implements FocusableInterface
+final class TableWidget extends AbstractWidget implements FocusableInterface, VerticallyExpandableInterface
 {
     use FocusableTrait;
     use KeybindingsTrait;
@@ -64,6 +65,14 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
 
     private int $columnCursor = 0;
 
+    private bool $verticallyExpanded = false;
+
+    /**
+     * How many data rows the last render actually drew, so paging moves by what
+     * is on screen rather than by a number nobody set.
+     */
+    private int $renderedWindow = 0;
+
     private ?string $sortKey = null;
 
     private ?SortDirection $sortDirection = null;
@@ -78,7 +87,7 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
     public function __construct(
         private readonly array $columns,
         array $rows = [],
-        private readonly int $maxVisible = 10,
+        private int $maxVisible = 10,
         ?Keybindings $keybindings = null,
     ) {
         $this->rows = $rows;
@@ -149,6 +158,51 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
 
         if ($this->selectedIndex !== $index) {
             $this->selectedIndex = $index;
+            $this->invalidate();
+        }
+
+        return $this;
+    }
+
+    /**
+     * Fill the height the layout offers instead of stopping at maxVisible.
+     *
+     * Off by default. While it is on, `maxVisible` is ignored entirely: the
+     * window is whatever `RenderContext::getRows()` grants, minus the header
+     * and the scroll indicator.
+     *
+     * @return $this
+     */
+    public function expandVertically(bool $expand): static
+    {
+        if ($this->verticallyExpanded !== $expand) {
+            $this->verticallyExpanded = $expand;
+            $this->invalidate();
+        }
+
+        return $this;
+    }
+
+    public function isVerticallyExpanded(): bool
+    {
+        return $this->verticallyExpanded;
+    }
+
+    /**
+     * Number of data rows to draw when vertical expansion is off.
+     *
+     * @return $this
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function setMaxVisible(int $rows): static
+    {
+        if ($rows < 1) {
+            throw new \InvalidArgumentException(\sprintf('maxVisible must be at least 1, got %d.', $rows));
+        }
+
+        if ($this->maxVisible !== $rows) {
+            $this->maxVisible = $rows;
             $this->invalidate();
         }
 
@@ -350,11 +404,15 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
         if ($rows) {
             $last = \count($rows) - 1;
 
+            // A page is what the last render drew, which matters once the
+            // height comes from the layout instead of maxVisible.
+            $page = max(1, 0 !== $this->renderedWindow ? $this->renderedWindow : $this->maxVisible);
+
             $target = match (true) {
                 $keys->matches($data, 'row_up') => $this->selectedIndex - 1,
                 $keys->matches($data, 'row_down') => $this->selectedIndex + 1,
-                $keys->matches($data, 'page_up') => $this->selectedIndex - $this->maxVisible,
-                $keys->matches($data, 'page_down') => $this->selectedIndex + $this->maxVisible,
+                $keys->matches($data, 'page_up') => $this->selectedIndex - $page,
+                $keys->matches($data, 'page_down') => $this->selectedIndex + $page,
                 $keys->matches($data, 'row_first') => 0,
                 $keys->matches($data, 'row_last') => $last,
                 default => null,
@@ -401,7 +459,8 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
         // when rows are hidden, to the scroll indicator: the render contract
         // caps the output at the rows the context granted.
         $budget = $terminalRows - 1;
-        $length = min(Viewport::length($total, $this->maxVisible), $budget);
+        $window = $this->verticallyExpanded ? max(1, $budget) : $this->maxVisible;
+        $length = min(Viewport::length($total, $window), $budget);
         $withIndicator = $length < $total && $budget >= 2;
 
         if ($withIndicator) {
@@ -409,6 +468,7 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
             $length = min($length, $budget);
         }
 
+        $this->renderedWindow = $length;
         $start = Viewport::start($this->selectedIndex, $total, max(1, $length));
         $visible = \array_slice($rows, $start, $length);
 

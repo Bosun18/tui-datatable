@@ -350,6 +350,72 @@ final class TableWidgetRenderTest extends TestCase
         self::assertCount(0, $widget->render(new RenderContext(40, 0)));
     }
 
+    public function testWithoutExpansionMaxVisibleDecidesTheWindow(): void
+    {
+        $widget = new TableWidget([new Column('name', 'Package')], self::manyRows(), maxVisible: 5);
+
+        // header + 5 rows + indicator, even though 24 rows were offered
+        self::assertCount(7, $widget->render(new RenderContext(40, 24)));
+    }
+
+    public function testExpansionIgnoresMaxVisibleAndTakesTheOfferedHeight(): void
+    {
+        $widget = new TableWidget([new Column('name', 'Package')], self::manyRows(), maxVisible: 5);
+        $widget->expandVertically(true);
+
+        // header + 22 rows + indicator fills all 24 rows
+        $lines = $widget->render(new RenderContext(40, 24));
+        self::assertCount(24, $lines);
+        self::assertSame('row-22', self::visibleText($lines)[22]);
+        self::assertSame('(1/30)', trim(self::visibleText($lines)[23]));
+
+        // and it still respects a short terminal
+        self::assertCount(8, $widget->render(new RenderContext(40, 8)));
+    }
+
+    public function testExpansionFollowsAResize(): void
+    {
+        $widget = new TableWidget([new Column('name', 'Package')], self::manyRows(), maxVisible: 5);
+        $widget->expandVertically(true);
+
+        $counts = [];
+        foreach ([30, 12, 40, 3] as $available) {
+            $counts[$available] = \count($widget->render(new RenderContext(40, $available)));
+        }
+
+        self::assertSame([30 => 30, 12 => 12, 40 => 31, 3 => 3], $counts, 'at 40 rows only 30 rows of data exist');
+    }
+
+    public function testSetMaxVisibleMovesTheWindowWhileExpansionIsOff(): void
+    {
+        $widget = new TableWidget([new Column('name', 'Package')], self::manyRows(), maxVisible: 5);
+
+        $widget->setMaxVisible(3);
+
+        self::assertCount(5, $widget->render(new RenderContext(40, 24)), 'header + 3 rows + indicator');
+    }
+
+    public function testSetMaxVisibleChangesNothingWhileExpansionIsOn(): void
+    {
+        $widget = new TableWidget([new Column('name', 'Package')], self::manyRows(), maxVisible: 5);
+        $widget->expandVertically(true)->setMaxVisible(3);
+
+        self::assertCount(24, $widget->render(new RenderContext(40, 24)));
+    }
+
+    public function testPagingUsesTheRenderedWindowWhenExpanded(): void
+    {
+        $widget = new TableWidget([new Column('name', 'Package')], self::manyRows(), maxVisible: 5);
+        $widget->expandVertically(true);
+
+        // Render first so the widget knows how tall it actually is: 12 rows
+        // means a window of 10 data rows.
+        $widget->render(new RenderContext(40, 12));
+        $widget->handleInput("\e[6~");
+
+        self::assertSame(10, $widget->getSelectedIndex(), 'a page is the window that was drawn, not maxVisible');
+    }
+
     public function testEveryLineStaysWithinASingleColumnTerminal(): void
     {
         $lines = $this->table()->render(new RenderContext(1, 24));
