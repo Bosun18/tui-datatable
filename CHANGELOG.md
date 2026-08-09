@@ -4,7 +4,9 @@ Notable changes land here, newest first. Versions follow
 [semantic versioning](https://semver.org/), and the layout borrows from
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## [Unreleased]
+
+## [0.1.0] - 2026-08-09
 
 `TableWidget` renders a table: a header row, the rows inside a scroll
 window that follows the selected row, and a `(current/total)` indicator
@@ -76,3 +78,6 @@ for the top of the README. The
 README covers installation, a quick start, the keybindings, sorting and
 filtering, styling and the events; `examples/` and `demo.tape` are
 excluded from the Composer archive.
+
+[Unreleased]: https://github.com/Bosun18/tui-datatable/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Bosun18/tui-datatable/releases/tag/v0.1.0
