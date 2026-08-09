@@ -6,6 +6,23 @@ Notable changes land here, newest first. Versions follow
 
 ## Unreleased
 
-Package skeleton only so far: composer metadata, PHPUnit, PHPStan at
-level max, php-cs-fixer with the `@Symfony` ruleset, and CI on PHP 8.4
-and 8.5. The widget itself is not written yet.
+`TableWidget` renders a table: a header row, the rows inside a scroll
+window that follows the selected row, and a `(current/total)` indicator
+when rows are hidden. Column widths come from `Column::$width` when
+pinned, otherwise the leftover width is split between the auto columns
+in proportion to the widest content on screen, never below three cells.
+Cells are truncated with the upstream width helpers, so no line can
+exceed the terminal width. Empty data renders a single "No rows" line.
+
+`Column` describes a column (key, header, width, alignment, sortable
+flag, formatter, comparator), with `Align` and `SortDirection` as enums.
+Selection state is readable and settable — `getSelectedRow()`,
+`getSelectedIndex()`, `setSelectedIndex()` with clamping — and every
+change invalidates the render cache.
+
+`TableWidget::defaultStyleSheet()` carries the styles for the `header`,
+`selected`, `row-alt`, `scroll-info` and `no-match` pseudo-elements; the
+core stylesheet has no rules for third-party widgets, so register it
+yourself to get any colour.
+
+Keyboard input, events, sorting and filtering are not implemented yet.

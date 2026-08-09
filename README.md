@@ -13,7 +13,7 @@ custom cell formatters, stylesheet-based theming. Keyboard-only in v1.
 ## Requirements
 
 - PHP >= 8.4.1
-- symfony/tui ^8.1@dev
+- symfony/tui ^8.1
 
 ## Development
 
