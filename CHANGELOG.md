@@ -44,4 +44,27 @@ Moving the cursor fires `RowChangeEvent`, Enter fires `RowSelectEvent`
 `onCancel()`. Without rows, navigation and Enter do nothing while cancel
 still works.
 
-Sorting, filtering and the column cursor are still missing.
+Sorting and filtering are in. `sortBy()` takes a column key and a
+direction, `clearSort()` goes back to the order the rows were given in,
+and `getSort()` reports the current state. Left and Right move a cursor
+along the header, `s` cycles the column under it through ascending,
+descending and off, and the sorted column is marked with `↑` or `↓` —
+the arrow is part of the header text, so it counts towards the column
+width. Sorting is stable, uses `<=>` on the raw cell values unless the
+column carries its own comparator, and refuses columns declared
+`sortable: false`: the key is ignored and `sortBy()` throws
+`InvalidArgumentException`.
+
+`setFilter()` accepts either a string, matched case-insensitively
+against the displayed text of every column, or a predicate over the raw
+row; `clearFilter()` drops it. Filtering happens before sorting, both on
+top of the untouched original rows, and indexes in events and
+`getSelectedIndex()` refer to what is on screen. A new filter or sort
+puts the cursor back on the first row. An empty result reads
+`No matches` when a filter is active and `No rows` when there is no data
+at all.
+
+`SortChangeEvent` (key and direction, both null once cleared) and
+`FilterChangeEvent` (match count) fire only when the state really
+changed; subscribe with `onSortChange()` and `onFilterChange()`. The
+default stylesheet gained `header-cursor` and `header-sorted`.

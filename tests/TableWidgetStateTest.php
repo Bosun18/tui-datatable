@@ -81,6 +81,8 @@ final class TableWidgetStateTest extends TestCase
 
         self::assertSame([
             TableWidget::class.'::header',
+            TableWidget::class.'::header-cursor',
+            TableWidget::class.'::header-sorted',
             TableWidget::class.'::selected',
             TableWidget::class.'::row-alt',
             TableWidget::class.'::scroll-info',

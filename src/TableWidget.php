@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Bosun18\TuiDataTable;
 
+use Bosun18\TuiDataTable\Event\FilterChangeEvent;
 use Bosun18\TuiDataTable\Event\RowChangeEvent;
 use Bosun18\TuiDataTable\Event\RowSelectEvent;
+use Bosun18\TuiDataTable\Event\SortChangeEvent;
 use Bosun18\TuiDataTable\Internal\Viewport;
 use Symfony\Component\Tui\Ansi\AnsiUtils;
 use Symfony\Component\Tui\Event\CancelEvent;
@@ -51,7 +53,23 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
     /** @var list<array<string, mixed>> */
     private array $rows;
 
+    /**
+     * Filtered and sorted view of $rows, rebuilt lazily.
+     *
+     * @var list<array<string, mixed>>|null
+     */
+    private ?array $visibleRows = null;
+
     private int $selectedIndex = 0;
+
+    private int $columnCursor = 0;
+
+    private ?string $sortKey = null;
+
+    private ?SortDirection $sortDirection = null;
+
+    /** @var (\Closure(array<string, mixed>): bool)|string|null */
+    private \Closure|string|null $filter = null;
 
     /**
      * @param list<Column>               $columns
@@ -80,6 +98,8 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
     {
         return new StyleSheet([
             self::class.'::header' => new Style()->withBold(),
+            self::class.'::header-cursor' => new Style()->withBold()->withUnderline(),
+            self::class.'::header-sorted' => new Style()->withBold()->withColor('cyan'),
             self::class.'::selected' => new Style()->withReverse(),
             self::class.'::row-alt' => new Style()->withDim(),
             self::class.'::scroll-info' => new Style()->withColor('gray'),
@@ -97,6 +117,7 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
     public function setRows(array $rows): static
     {
         $this->rows = $rows;
+        $this->visibleRows = null;
         $this->selectedIndex = 0;
         $this->invalidate();
 
@@ -104,11 +125,14 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
     }
 
     /**
+     * The selected row of the visible list, so filtering and sorting are
+     * already applied.
+     *
      * @return array<string, mixed>|null
      */
     public function getSelectedRow(): ?array
     {
-        return $this->rows[$this->selectedIndex] ?? null;
+        return $this->visibleRows()[$this->selectedIndex] ?? null;
     }
 
     public function getSelectedIndex(): int
@@ -121,12 +145,118 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
      */
     public function setSelectedIndex(int $index): static
     {
-        $index = max(0, min($index, \count($this->rows) - 1));
+        $index = max(0, min($index, \count($this->visibleRows()) - 1));
 
         if ($this->selectedIndex !== $index) {
             $this->selectedIndex = $index;
             $this->invalidate();
         }
+
+        return $this;
+    }
+
+    /**
+     * Sort by a column, which must exist and must be sortable.
+     *
+     * @return $this
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function sortBy(string $key, SortDirection $direction): static
+    {
+        $column = $this->findColumn($key);
+
+        if (null === $column) {
+            throw new \InvalidArgumentException(\sprintf('There is no column with key "%s".', $key));
+        }
+
+        if (!$column->sortable) {
+            throw new \InvalidArgumentException(\sprintf('Column "%s" is not sortable.', $key));
+        }
+
+        if ($this->sortKey === $key && $this->sortDirection === $direction) {
+            return $this;
+        }
+
+        $this->sortKey = $key;
+        $this->sortDirection = $direction;
+        $this->refreshVisibleRows();
+        $this->dispatch(new SortChangeEvent($this, $key, $direction));
+
+        return $this;
+    }
+
+    /**
+     * Back to the order the rows were given in.
+     *
+     * @return $this
+     */
+    public function clearSort(): static
+    {
+        if (null === $this->sortKey) {
+            return $this;
+        }
+
+        $this->sortKey = null;
+        $this->sortDirection = null;
+        $this->refreshVisibleRows();
+        $this->dispatch(new SortChangeEvent($this, null, null));
+
+        return $this;
+    }
+
+    /**
+     * @return array{key: string, direction: SortDirection}|null
+     */
+    public function getSort(): ?array
+    {
+        if (null === $this->sortKey || null === $this->sortDirection) {
+            return null;
+        }
+
+        return ['key' => $this->sortKey, 'direction' => $this->sortDirection];
+    }
+
+    /**
+     * Keep only some rows.
+     *
+     * A string is matched case-insensitively against the displayed text of
+     * every column, formatters included, so you find what you see. A callable
+     * is used as a predicate on the raw row.
+     *
+     * @param string|callable(array<string, mixed>): bool $filter
+     *
+     * @return $this
+     */
+    public function setFilter(string|callable $filter): static
+    {
+        // Strings are compared by value; a callable is wrapped into a fresh
+        // Closure, so passing the same function twice does count as a change.
+        $filter = \is_string($filter) ? mb_strtolower($filter) : $filter(...);
+
+        if ($this->filter === $filter) {
+            return $this;
+        }
+
+        $this->filter = $filter;
+        $this->refreshVisibleRows();
+        $this->dispatch(new FilterChangeEvent($this, \count($this->visibleRows())));
+
+        return $this;
+    }
+
+    /**
+     * @return $this
+     */
+    public function clearFilter(): static
+    {
+        if (null === $this->filter) {
+            return $this;
+        }
+
+        $this->filter = null;
+        $this->refreshVisibleRows();
+        $this->dispatch(new FilterChangeEvent($this, \count($this->visibleRows())));
 
         return $this;
     }
@@ -149,6 +279,26 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
     public function onRowChange(callable $callback): static
     {
         return $this->on(RowChangeEvent::class, $callback);
+    }
+
+    /**
+     * @param callable(SortChangeEvent): void $callback
+     *
+     * @return $this
+     */
+    public function onSortChange(callable $callback): static
+    {
+        return $this->on(SortChangeEvent::class, $callback);
+    }
+
+    /**
+     * @param callable(FilterChangeEvent): void $callback
+     *
+     * @return $this
+     */
+    public function onFilterChange(callable $callback): static
+    {
+        return $this->on(FilterChangeEvent::class, $callback);
     }
 
     /**
@@ -175,8 +325,30 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
 
         $keys = $this->getKeybindings();
 
-        if ($this->rows) {
-            $last = \count($this->rows) - 1;
+        // The column cursor and sorting work regardless of the data: with no
+        // rows there is nothing to reorder, but the header still responds.
+        if ($keys->matches($data, 'column_prev')) {
+            $this->moveColumnCursor(-1);
+
+            return;
+        }
+
+        if ($keys->matches($data, 'column_next')) {
+            $this->moveColumnCursor(1);
+
+            return;
+        }
+
+        if ($keys->matches($data, 'sort_toggle')) {
+            $this->cycleSort();
+
+            return;
+        }
+
+        $rows = $this->visibleRows();
+
+        if ($rows) {
+            $last = \count($rows) - 1;
 
             $target = match (true) {
                 $keys->matches($data, 'row_up') => $this->selectedIndex - 1,
@@ -216,20 +388,18 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
     public function render(RenderContext $context): array
     {
         $terminalColumns = $context->getColumns();
-        $total = \count($this->rows);
+        $rows = $this->visibleRows();
+        $total = \count($rows);
         $start = Viewport::start($this->selectedIndex, $total, $this->maxVisible);
         $length = Viewport::length($total, $this->maxVisible);
-        $visible = \array_slice($this->rows, $start, $length);
+        $visible = \array_slice($rows, $start, $length);
 
         $widths = $this->resolveWidths($terminalColumns, $visible);
-        $header = $this->renderCells(
-            array_map(static fn (Column $column): string => $column->header, $this->columns),
-            $widths,
-        );
-        $lines = [$this->applyElement('header', $this->pad($header, $terminalColumns))];
+        $lines = [$this->pad($this->renderHeader($widths), $terminalColumns)];
 
         if (!$visible) {
-            $lines[] = $this->applyElement('no-match', $this->pad('  No rows', $terminalColumns));
+            $empty = null === $this->filter ? '  No rows' : '  No matches';
+            $lines[] = $this->applyElement('no-match', $this->pad($empty, $terminalColumns));
 
             return $this->clip($lines, $terminalColumns);
         }
@@ -264,7 +434,143 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
             'row_last' => [Key::END],
             'row_confirm' => [Key::ENTER],
             'cancel' => [Key::ESCAPE, 'ctrl+c'],
+            'column_prev' => [Key::LEFT],
+            'column_next' => [Key::RIGHT],
+            'sort_toggle' => ['s'],
         ];
+    }
+
+    /**
+     * The rows to show: the original array with the filter and the sort applied,
+     * computed once and kept until one of the three changes.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function visibleRows(): array
+    {
+        return $this->visibleRows ??= $this->buildVisibleRows();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function buildVisibleRows(): array
+    {
+        $rows = $this->rows;
+
+        if (null !== $this->filter) {
+            $filter = $this->filter;
+            $rows = array_values(array_filter($rows, fn (array $row): bool => $this->matches($row, $filter)));
+        }
+
+        if (null !== $this->sortKey && null !== $this->sortDirection) {
+            $rows = $this->sorted($rows, $this->sortKey, $this->sortDirection);
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Sorting is stable: PHP's sort functions have preserved the order of equal
+     * elements since 8.0, so rows that compare equal stay as they were given.
+     *
+     * @param list<array<string, mixed>> $rows
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function sorted(array $rows, string $key, SortDirection $direction): array
+    {
+        $comparator = $this->findColumn($key)?->comparator;
+        $sign = SortDirection::Desc === $direction ? -1 : 1;
+
+        usort($rows, static function (array $left, array $right) use ($key, $comparator, $sign): int {
+            $a = $left[$key] ?? null;
+            $b = $right[$key] ?? null;
+
+            return $sign * (\is_callable($comparator) ? $comparator($a, $b) : $a <=> $b);
+        });
+
+        return $rows;
+    }
+
+    /**
+     * @param array<string, mixed>                          $row
+     * @param (\Closure(array<string, mixed>): bool)|string $filter
+     */
+    private function matches(array $row, \Closure|string $filter): bool
+    {
+        if ($filter instanceof \Closure) {
+            return $filter($row);
+        }
+
+        foreach ($this->columns as $column) {
+            if (str_contains(mb_strtolower($this->cellText($column, $row)), $filter)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function findColumn(string $key): ?Column
+    {
+        foreach ($this->columns as $column) {
+            if ($column->key === $key) {
+                return $column;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Drops the cached view and puts the cursor back on the first row, since
+     * after a new filter or sort the old position means nothing.
+     */
+    private function refreshVisibleRows(): void
+    {
+        $this->visibleRows = null;
+        $this->selectedIndex = 0;
+        $this->invalidate();
+    }
+
+    /**
+     * Sort key cycle for the column under the cursor: ascending, descending,
+     * off. Unsortable columns ignore the key.
+     */
+    private function cycleSort(): void
+    {
+        $column = $this->columns[$this->columnCursor] ?? null;
+
+        if (null === $column || !$column->sortable) {
+            return;
+        }
+
+        if ($this->sortKey !== $column->key) {
+            $this->sortBy($column->key, SortDirection::Asc);
+
+            return;
+        }
+
+        if (SortDirection::Asc === $this->sortDirection) {
+            $this->sortBy($column->key, SortDirection::Desc);
+
+            return;
+        }
+
+        $this->clearSort();
+    }
+
+    private function moveColumnCursor(int $delta): void
+    {
+        $target = max(0, min($this->columnCursor + $delta, \count($this->columns) - 1));
+
+        if ($target === $this->columnCursor) {
+            return;
+        }
+
+        $this->columnCursor = $target;
+        $this->invalidate();
     }
 
     /**
@@ -302,6 +608,50 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
         }
 
         return 0 === $index % 2 ? $line : $this->applyElement('row-alt', $line);
+    }
+
+    /**
+     * Header cells are styled one by one: the column under the cursor, the
+     * sorted column and everything else get their own element, so the padding
+     * of each cell is coloured with it.
+     *
+     * @param list<int> $widths
+     */
+    private function renderHeader(array $widths): string
+    {
+        $cells = [];
+
+        foreach ($this->columns as $index => $column) {
+            $cell = $this->fitCell($this->headerText($column), $widths[$index], $column->align);
+            $cells[] = $this->applyElement($this->headerElement($index, $column), $cell);
+        }
+
+        return implode(str_repeat(' ', self::COLUMN_GAP), $cells);
+    }
+
+    /**
+     * Header with the sort arrow, which is part of the text and therefore
+     * counts towards the column width.
+     */
+    private function headerText(Column $column): string
+    {
+        if ($this->sortKey !== $column->key || null === $this->sortDirection) {
+            return $column->header;
+        }
+
+        return $column->header.(SortDirection::Asc === $this->sortDirection ? ' ↑' : ' ↓');
+    }
+
+    /**
+     * The cursor wins over the sort marker: it is the one that moves.
+     */
+    private function headerElement(int $index, Column $column): string
+    {
+        return match (true) {
+            $index === $this->columnCursor => 'header-cursor',
+            $this->sortKey === $column->key => 'header-sorted',
+            default => 'header',
+        };
     }
 
     /**
@@ -400,7 +750,7 @@ final class TableWidget extends AbstractWidget implements FocusableInterface
      */
     private function contentWidth(Column $column, array $visible): int
     {
-        $width = AnsiUtils::visibleWidth($column->header);
+        $width = AnsiUtils::visibleWidth($this->headerText($column));
 
         foreach ($visible as $row) {
             $width = max($width, AnsiUtils::visibleWidth($this->cellText($column, $row)));

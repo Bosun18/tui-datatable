@@ -6,6 +6,7 @@ namespace Bosun18\TuiDataTable\Tests;
 
 use Bosun18\TuiDataTable\Align;
 use Bosun18\TuiDataTable\Column;
+use Bosun18\TuiDataTable\SortDirection;
 use Bosun18\TuiDataTable\TableWidget;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -238,6 +239,42 @@ final class TableWidgetRenderTest extends TestCase
         );
 
         self::assertSame('stringable', self::visibleText($widget->render(new RenderContext(40, 24)))[1]);
+    }
+
+    public function testSortedColumnGetsAnArrowThatCountsTowardsItsWidth(): void
+    {
+        $widget = $this->table();
+
+        $widget->sortBy('qty', SortDirection::Asc);
+        $header = self::visibleText($widget->render(new RenderContext(25, 24)))[0];
+        self::assertStringContainsString('Qty ↑', $header);
+        self::assertSame(1, AnsiUtils::visibleWidth('↑'), 'the arrow is one cell wide');
+
+        $widget->sortBy('qty', SortDirection::Desc);
+        self::assertStringContainsString('Qty ↓', self::visibleText($widget->render(new RenderContext(25, 24)))[0]);
+
+        $widget->clearSort();
+        $header = self::visibleText($widget->render(new RenderContext(25, 24)))[0];
+        self::assertStringNotContainsString('↑', $header);
+        self::assertStringNotContainsString('↓', $header);
+    }
+
+    public function testTheArrowWidensTheColumnRatherThanOverflowingTheLine(): void
+    {
+        $widget = new TableWidget(
+            [new Column('name', 'Package'), new Column('qty', 'Qty')],
+            [['name' => 'alpha', 'qty' => 1]],
+        );
+
+        // Natural width without an arrow: name 7 + gap 2 + qty 3 = 12.
+        self::assertSame(12, AnsiUtils::visibleWidth($widget->render(new RenderContext(12, 24))[0]));
+
+        $widget->sortBy('qty', SortDirection::Asc);
+        $lines = $widget->render(new RenderContext(14, 24));
+
+        // 'Qty ↑' needs 5 cells, so the natural width grows to 14.
+        self::assertSame('Package  Qty ↑', self::visibleText($lines)[0]);
+        self::assertFitsWidth($lines, 14);
     }
 
     public function testEveryLineStaysWithinASingleColumnTerminal(): void
